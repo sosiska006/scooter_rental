@@ -1,4 +1,5 @@
 # scooter_rental
+
 This educational project was created for teaching DevOps.
 
 подключение произошло =3
@@ -13,3 +14,5 @@ This educational project was created for teaching DevOps.
 тест конфликта на ветке feature/readme
 
 проверка с ноутбука,
+
+проверка прав после изменения названия 
