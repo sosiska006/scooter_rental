@@ -2,128 +2,154 @@
 
 Учебный проект для изучения DevOps. Тема проекта: прокат самокатов.
 
-В этой части проекта простое API на Java упаковано в Docker-контейнер.
+REST API на Java (Spring Boot) с базой данных PostgreSQL. Приложение и база запускаются одной командой через Docker Compose.
 
 ## Что внутри
 
 | Файл | Назначение |
 |------|------------|
-| `api/ApiServer.java` | исходный код API (пакет `api`, порт 8080) |
-| `Dockerfile` | инструкции для сборки образа, написан вручную |
-| `.gitignore` | исключает скомпилированные `*.class` из репозитория |
+| `src/main/java/api/` | исходный код API (сущность `Scooter`, репозиторий, контроллер) |
+| `src/main/resources/application.properties` | настройки подключения к БД (берутся из переменных окружения) |
+| `pom.xml` | зависимости и сборка (Maven) |
+| `Dockerfile` | сборка образа API (двухэтапная: `builder` и `runtime`) |
+| `docker-compose.yml` | описание сервисов `api` и `db` |
+| `.dockerignore`, `.gitignore` | исключают лишние файлы |
+
+## Архитектура
+
+```
+API (api, порт 8080) -> PostgreSQL (db, postgres:16)
+```
+
+- **api** - Java-приложение, собирается из `Dockerfile`.
+- **db** - PostgreSQL 16, данные хранятся в volume `db_data` (`/var/lib/postgresql/data`).
+- Сервисы находятся в общей сети `scooter-net`. API обращается к базе по имени сервиса `db`.
+- Настройки подключения передаются через `environment`.
+- `depends_on` с `service_healthy`: API стартует только после того, как база прошла healthcheck.
+
+## Сущность Scooter
+
+| Поле | Тип | Описание |
+|------|-----|----------|
+| `id` | число | создаётся автоматически |
+| `model` | строка | модель самоката |
+| `batteryLevel` | число | заряд, % |
+| `status` | строка | `AVAILABLE` или `RENTED` |
+| `pricePerMinute` | число | цена за минуту |
 
 ## API
 
-Приложение запускает веб-сервер на порту **8080** и отвечает на запрос:
+| Метод | Адрес | Действие |
+|-------|-------|----------|
+| GET | `/health` | проверка работы API |
+| GET | `/scooters` | список всех самокатов |
+| GET | `/scooters/{id}` | один самокат |
+| POST | `/scooters` | создать самокат |
+| PUT | `/scooters/{id}` | изменить самокат |
+| DELETE | `/scooters/{id}` | удалить самокат |
 
-| Метод | Адрес | Ответ |
-|-------|-------|-------|
-| GET | `/health` | текстовый ответ, например `hello world)` |
+## Запуск
 
-Эндпоинт `/health` нужен для проверки, что API работает.
-
-## Dockerfile
-
-```dockerfile
-FROM eclipse-temurin:17-jdk
-WORKDIR /app
-COPY api/ApiServer.java api/ApiServer.java
-RUN javac api/ApiServer.java
-EXPOSE 8080
-CMD ["java", "api.ApiServer"]
-```
-
-| Инструкция | Зачем |
-|------------|-------|
-| `FROM` | базовый образ с Java 17 (JDK, чтобы был компилятор) |
-| `WORKDIR` | рабочая папка `/app` внутри контейнера |
-| `COPY` | копирует исходный код в контейнер |
-| `RUN` | при сборке образа компилирует код (`javac`) |
-| `EXPOSE` | документирует порт приложения, сам порт не открывает |
-| `CMD` | команда по умолчанию, запускает сервер при старте контейнера |
-
-## Запуск без Docker (локальная проверка)
-
-Из корня репозитория:
+Нужен установленный Docker Desktop. Из корня проекта:
 
 ```
-javac api/ApiServer.java
-java api.ApiServer
+docker compose up --build
 ```
 
-Класс лежит в пакете `api`, поэтому запускать его нужно из корня репозитория командой `java api.ApiServer`, а не из папки `api`.
-
-## Сборка образа
+Остановка (данные сохраняются):
 
 ```
-docker build -t scooter-api .
+docker compose stop
 ```
 
-## Запуск контейнера
+Удаление контейнеров и сети (данные в volume сохраняются):
 
 ```
-docker run -d -p 8080:8080 --name scooter scooter-api
+docker compose down
 ```
 
-`-p 8080:8080` пробрасывает порт: слева порт на компьютере, справа порт внутри контейнера. Он совпадает с портом в коде (`8080`).
+Внимание: `docker compose down -v` удаляет volume `db_data` вместе с данными.
 
 ## Проверка
 
-Список запущенных контейнеров:
+Состояние сервисов:
 
 ```
-docker ps
+docker compose ps
 ```
 
-Запрос к API в браузере: http://localhost:8080/health
-
-Запрос к API в терминале:
+Логи:
 
 ```
-curl http://localhost:8080/health
+docker compose logs
 ```
 
-Логи контейнера:
+## Примеры curl-запросов
+
+Команды для Windows PowerShell (там нужно писать `curl.exe`).
+
+Проверка работы:
 
 ```
-docker logs scooter
+curl.exe http://localhost:8080/health
 ```
 
-## Результат проверки
-
-`docker ps`:
+Create:
 
 ```
-(сюда вставить вывод команды docker ps)
+'{"model":"Xiaomi M365","batteryLevel":90,"status":"AVAILABLE","pricePerMinute":8.5}' | curl.exe -i -X POST http://localhost:8080/scooters -H "Content-Type: application/json" -d "@-"
 ```
 
-Запрос к API (http://localhost:8080/health):
+Read (все и один):
 
 ```
-(сюда вставить ответ API)
+curl.exe http://localhost:8080/scooters
+curl.exe http://localhost:8080/scooters/1
 ```
 
-`docker logs scooter`:
+Update:
 
 ```
-Server started on port 8080
+'{"model":"Xiaomi M365","batteryLevel":60,"status":"RENTED","pricePerMinute":8.5}' | curl.exe -i -X PUT http://localhost:8080/scooters/1 -H "Content-Type: application/json" -d "@-"
 ```
 
-## Как обновить после изменения кода
-
-После правки `api/ApiServer.java` образ нужно пересобрать, иначе контейнер будет работать со старым кодом:
+Delete:
 
 ```
-docker stop scooter
-docker rm scooter
-docker build -t scooter-api .
-docker run -d -p 8080:8080 --name scooter scooter-api
+curl.exe -i -X DELETE http://localhost:8080/scooters/2
 ```
 
-## Остановка и удаление
+Для Linux/macOS: `curl -X POST http://localhost:8080/scooters -H "Content-Type: application/json" -d '{"model":"Xiaomi M365","batteryLevel":90,"status":"AVAILABLE","pricePerMinute":8.5}'`
+
+## Проверка сохранения данных после перезапуска
+
+1. Создать самокат (POST) и изменить его (PUT).
+2. Выполнить `docker compose down` (без `-v`).
+3. Выполнить `docker compose up -d`.
+4. Выполнить `curl.exe http://localhost:8080/scooters` - созданные данные на месте, потому что хранятся в volume `db_data`.
+
+## Результаты проверки
+
+`docker compose ps`:
 
 ```
-docker stop scooter
-docker rm scooter
-docker rmi scooter-api
+(вставить вывод docker compose ps)
+```
+
+CRUD-запросы:
+
+```
+(вставить команды и ответы: POST, GET, PUT, DELETE)
+```
+
+Данные после перезапуска (`docker compose down` и `docker compose up`):
+
+```
+(вставить ответ GET /scooters после перезапуска)
+```
+
+`docker compose logs`:
+
+```
+(вставить фрагмент логов api и db)
 ```
